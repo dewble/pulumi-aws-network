@@ -1,2 +1,9 @@
 config:
   aws:region: ap-northeast-2
+
+  # 형식 namespace:component:configKey
+  aws-network:vpc_cidr_block: "10.0.0.0/16"
+  aws-network:tags:
+    Project: "jeff"
+    Service: "network"
+    Stage: "dev"
