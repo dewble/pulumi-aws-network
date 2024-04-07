@@ -4,6 +4,19 @@ import pulumi
 from vpc import create_vpc
 from subnet import create_subnet
 from security_group import create_security_group, create_security_group_rule
+from nat import create_elastic_ip, create_nat_gateway
+from route_table import (
+    create_default_route,
+    create_route_table,
+    associate_subnet_route_table,
+    add_route_to_route_table,
+)
+from igw import create_internet_gateway, attach_igw_to_vpc
+from vpce import (
+    create_interface_vpce,
+    create_gateway_vpce,
+    attach_vpc_endpoint_policy,
+)
 
 
 ######## Pulumi 구성 시스템을 사용하여 구성 값을 가져옴 ########
@@ -295,6 +308,144 @@ sg_vpce_from_sg_management_rule = create_security_group_rule(
     type="ingress",
 )
 
+######## Create Nat Gateway ########
+# Create Elastic IP
+nat_eip = create_elastic_ip(f"{project}-nat-eip", tags)
+# Create Nat Gateway
+nat_gateway_a = create_nat_gateway(
+    f"{project}-nat-gateway-a",
+    subnet_id=subnet_public_ingress_a.id,
+    eip_allocation_id=nat_eip.id,
+    tags=tags,
+)
+
+
+######## Create Routetable ########
+# 라우트 테이블 생성 및 서브넷 연결: app
+route_app = create_route_table(
+    f"{project}-route-app", vpc.id, {**tags, "Name": f"{project}-route-app"}
+)
+route_app_association_a = associate_subnet_route_table(
+    f"{project}-route-app-association-a", route_app.id, subnet_private_app_a.id
+)
+route_app_association_c = associate_subnet_route_table(
+    f"{project}-route-app-association-c", route_app.id, subnet_private_app_c.id
+)
+route_app_route_nat = add_route_to_route_table(
+    f"{project}-route-app-add-route-nat",
+    route_app.id,
+    destination_cidr_block="0.0.0.0/0",
+    nat_gateway_id=nat_gateway_a.id,
+)
+
+######## Create Internet Gateway ########
+# 인터넷 게이트웨이 생성 및 VPC에 연결
+igw = create_internet_gateway(f"{project}-igw", tags)
+vpcgw_attachment = attach_igw_to_vpc(f"{project}-vpcgw-attachment", vpc.id, igw.id)
+
+# 라우트 테이블 생성 및 서브넷 연결: ingress
+route_ingress = create_route_table(
+    f"{project}-route-ingress",
+    vpc_id=vpc.id,
+    tags={**tags, "Name": f"{project}-route-ingress"},
+)
+route_ingress_association_a = associate_subnet_route_table(
+    f"{project}-route-ingress-association-a",
+    route_ingress.id,
+    subnet_id=subnet_public_ingress_a.id,
+)
+route_ingress_association_c = associate_subnet_route_table(
+    f"{project}-route-ingress-association-c",
+    route_ingress.id,
+    subnet_public_ingress_c.id,
+)
+
+# 기본 라우트 설정
+route_default = create_default_route(
+    f"{project}-route-default",
+    default_route_table_id=route_ingress.id,
+    cidr_block="0.0.0.0/0",
+    gateway_id=igw.id,
+    tags=tags,
+)
+
+######## Create VPC Endpoints ########
+# Interface VPCE 생성
+vpce_interface_ecr_api = create_interface_vpce(
+    f"{project}-ecr-api-vpce",
+    service_name="com.amazonaws.ap-northeast-2.ecr.api",
+    vpc_id=vpc.id,
+    subnet_ids=[subnet_private_egress_a.id, subnet_private_egress_c.id],
+    security_group_id=security_group_vpce.id,
+    tags=tags,
+)
+vpce_interface_ecr_api_policy = attach_vpc_endpoint_policy(
+    f"{project}-ecr-api-vpce-policy",
+    vpce_interface_ecr_api.id,
+    policy={
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "ecr:*",
+                "Resource": "*",
+            }
+        ],
+    },
+    tags=tags,
+)
+vpce_interface_ecr_dkr = create_interface_vpce(
+    f"{project}-ecr-dkr-vpce",
+    service_name="com.amazonaws.ap-northeast-2.ecr.dkr",
+    vpc_id=vpc.id,
+    subnet_ids=[subnet_private_egress_a.id, subnet_private_egress_c.id],
+    security_group_id=security_group_vpce.id,
+    tags=tags,
+)
+vpce_interface_ecr_dkr_policy = attach_vpc_endpoint_policy(
+    f"{project}-ecr-dkr-vpce-policy",
+    vpce_interface_ecr_dkr.id,
+    policy={
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "ecr:*",
+                "Resource": "*",
+            }
+        ],
+    },
+    tags=tags,
+)
+
+# Gateway VPCE 생성
+vpce_s3_gateway = create_gateway_vpce(
+    f"{project}-s3-vpce",
+    service_name="com.amazonaws.ap-northeast-2.s3",
+    vpc_id=vpc.id,
+    route_table_ids=[route_app.id],
+    tags=tags,
+)
+vpce_s3_gateway_policy = attach_vpc_endpoint_policy(
+    f"{project}-s3-vpce-policy",
+    vpce_s3_gateway.id,
+    policy={
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:*",
+                "Resource": "*",
+            }
+        ],
+    },
+    tags=tags,
+)
+
+
 ######## Export the name of the bucket ########
 # vpc
 pulumi.export("vpc_id", vpc.id)
@@ -318,7 +469,9 @@ pulumi.export("security_group_backend_id", security_group_backend.id)
 pulumi.export("security_group_internal_lb_id", security_group_internal_lb.id)
 pulumi.export("security_group_vpce_id", security_group_vpce.id)
 # security group rule
-pulumi.export("sg_frontend_from_sg_ingress_rule_id", sg_frontend_from_sg_ingress_rule.id)
+pulumi.export(
+    "sg_frontend_from_sg_ingress_rule_id", sg_frontend_from_sg_ingress_rule.id
+)
 pulumi.export(
     "sg_internal_lb_from_sg_front_rule_id", sg_internal_lb_from_sg_front_rule.id
 )
@@ -329,11 +482,23 @@ pulumi.export("sg_db_from_sg_backend_rule_id", sg_db_from_sg_backend_rule.id)
 pulumi.export("sg_db_from_sg_frontend_rule_id", sg_db_from_sg_frontend_rule.id)
 pulumi.export("sg_db_from_sg_management_rule_id", sg_db_from_sg_management_rule.id)
 pulumi.export(
-    "sg_internal_lb_from_sg_management_rule_id", sg_internal_lb_from_sg_management_rule.id
+    "sg_internal_lb_from_sg_management_rule_id",
+    sg_internal_lb_from_sg_management_rule.id,
 )
 pulumi.export("sg_vpce_from_sg_backend_rule_id", sg_vpce_from_sg_backend_rule.id)
 pulumi.export("sg_vpce_from_sg_frontend_rule_id", sg_vpce_from_sg_frontend_rule.id)
-pulumi.export(
-    "sg_vpce_from_sg_management_rule_id", sg_vpce_from_sg_management_rule.id
-)
-
+pulumi.export("sg_vpce_from_sg_management_rule_id", sg_vpce_from_sg_management_rule.id)
+# nat gateway
+pulumi.export("nat_gateway_a_id", nat_gateway_a.id)
+# route table
+pulumi.export("route_app_id", route_app.id)
+pulumi.export("route_ingress_id", route_ingress.id)
+pulumi.export("route_default_id", route_default.id)
+# vpc endpoint
+pulumi.export("vpce_interface_ecr_api_id", vpce_interface_ecr_api.id)
+pulumi.export("vpce_interface_ecr_dkr_id", vpce_interface_ecr_dkr.id)
+pulumi.export("vpce_s3_gateway_id", vpce_s3_gateway.id)
+# vpc endpoint policy
+pulumi.export("vpce_interface_ecr_api_policy_id", vpce_interface_ecr_api_policy.id)
+pulumi.export("vpce_interface_ecr_dkr_policy_id", vpce_interface_ecr_dkr_policy.id)
+pulumi.export("vpce_s3_gateway_policy_id", vpce_s3_gateway_policy.id)
