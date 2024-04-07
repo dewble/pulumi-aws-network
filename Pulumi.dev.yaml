@@ -24,3 +24,88 @@ config:
   aws-network:subnet_public_management_cidr_blocks:
     - "10.0.240.0/24"
     - "10.0.241.0/24"
+
+  # security group
+  aws-network:security_group_ingress:
+    description: "Security group for ingress"
+    ingress:
+      - protocol: "tcp"
+        from_port: 80
+        to_port: 80
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "from 0.0.0.0/0:80"
+      - protocol: "tcp"
+        from_port: 443
+        to_port: 443
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "from 0.0.0.0/0:443"
+      - protocol: "tcp"
+        from_port: 80
+        to_port: 80
+        ipv6_cidr_blocks: ["::/0"]
+        description: "from ::/0:80"
+      - protocol: "tcp"
+        from_port: 443
+        to_port: 443
+        ipv6_cidr_blocks: ["::/0"]
+        description: "from ::/0:443"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
+
+  aws-network:security_group_management:
+    description: "Security Group of management server"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
+
+  aws-network:security_group_backend:
+    description: "Security Group of backend app"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
+
+  aws-network:security_group_frontend:
+    description: "Security Group of frontend app"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
+
+  aws-network:security_group_internal_lb:
+    description: "Security group for internal load balancer"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
+
+  aws-network:security_group_db:
+    description: "Security Group of database"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
+
+  aws-network:security_group_vpce:
+    description: "Security Group of VPC Endpoint"
+    egress:
+      - protocol: "-1"
+        from_port: 0
+        to_port: 0
+        cidr_blocks: ["0.0.0.0/0"]
+        description: "Allow all outbound traffic by default"
